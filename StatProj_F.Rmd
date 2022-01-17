@@ -1,0 +1,595 @@
+---
+title: "Estimation non paramétrique de densités"
+author: "Essaddek othmane"
+date: "29/09/2021"
+header-includes:
+  - \usepackage{amsfonts, bbm, amssymb, dsfont, bbold}
+output: 
+  prettydoc::html_pretty:
+    #toc : true
+    #toc_float : true
+    theme : architect
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+```
+
+
+```{r echo=FALSE, message=FALSE}
+library(dplyr)
+library(ggfortify)
+library(knitr)
+library(prettydoc)
+library(ggplot2)
+library(MASS)
+library(factoextra)
+library(ggfortify)
+library(ggrepel)
+library(class)
+library(plotrix)
+library(deamer)
+
+```
+
+
+# Partie 1
+Dans cette partie nous allons illustrer l'utilisation de la fonction  *density* pour éstimer la densité de l'échantillon $(X_1,...,X_n)$, qui sera simulé selon la loi: $f=\frac{1}{2}\left(f_1+f_2\right)$ dans les trois modèles suivants:
+
+**Modèle 1:** $f_1\sim\mathcal{N}(2,1)$  et  $f_2\sim\mathcal{N}(-1,0.5)$
+
+**Modèle 2:** $f_1\sim\mathcal{U}([0,1])$  et  $f_2\sim\mathcal{N}(-1,0.5)$
+
+**Modèle 2:** $f_1\sim\Gamma(2,4)$  et  $f_2\sim\Gamma(2,1)$
+
+```{r,echo=TRUE}
+f_modele1 <- function(x){ 0.5*dnorm(x,2,1) + 0.5*dnorm(x,-1,sqrt(0.5)) }
+f_modele2 <- function(x){ 0.5*dunif(x,0,1) + 0.5*dnorm(x,-1,sqrt(0.5)) }
+f_modele3 <- function(x){ 0.5*dgamma(x,2,4) + 0.5*dgamma(x,2,1) }
+
+
+
+```
+
+
+Nous aurons alors besoins d'une méthode d'échantillonage selon ces dernières densités, nous procèderons ainsi:
+
+Si $X\sim f$,  $X_1\sim f_1$, $X_2\sim f_2$  et  $U\sim \mathcal{U}[0,1]$ des variables aléatoires indépendantes.
+
+$$\text{Alors, }X \text{ et } (\mathbb{1}_{\{U<0.5\}}X_1+\mathbb{1}_{\{U>0.5\}}X_2)\text{  suivent la même loi}$$ 
+En effet,
+$$\mathbb{E}\left[\text{1}_{\{U<0.5\}}X_1+\text{1}_{\{U>0.5\}}X_2\right]=\frac{1}{2}\left(\mathbb{E}[X_1]+\mathbb{E}[X_2]\right)=\frac{1}{2}\int_{\mathbb{R}}x(f_1+f_2)(dx)=\mathbb{E}[X]$$
+
+```{r,echo=TRUE}
+Dn1 <-function(n){
+  f1 = rnorm(n,2,1)
+  f2 = rnorm(n,-1,sqrt(0.5))
+  u=runif(n,0,1)
+  dn <- (u<0.5)*f1 + (u>0.5)*f2
+  return(dn)
+}
+
+Dn2 <-function(n){
+  f1 <- runif(n,0,1)
+  f2 <- rnorm(n,-1,sqrt(0.5))
+  u<-runif(n,0,1)
+  dn <- (u<0.5)*f1 + (u>0.5)*f2
+  return(dn)
+}
+
+Dn3 <-function(n){
+  f2 <- rgamma(n,2,1)
+  f1 <- rgamma(n,2,4)
+  u<-runif(n,0,1)
+  dn <- (u<0.5)*f1 + (u>0.5)*f2
+  return(dn)
+}
+
+
+```
+
+Nous allons ensuite construire différents éstimateurs à noyau selon differents noyaux, notament:
+$$\text{Le noyau gaussien: } K(u)=\frac{1}{\sqrt{2\pi}}e^{\frac{-u^2}{2}}$$
+$$\text{Le noyau rectangulaire: } K(u)=\frac{1}{2}\text{1}_{\{\mid u\mid\leq1\}}$$
+$$\text{Le noyau triangulaire: } K(u)=(1-\mid u\mid )\text{1}_{\{\mid u\mid\leq1\}}$$
+$$\text{Le noyau d'Epanechnikov: } K(u)=\frac{3}{4}(1- u^2 )\text{1}_{\{\mid u\mid\leq1\}}$$
+```{r,echo=TRUE}
+noyau_gaussian = function(u) {return( (1/sqrt(2*pi))*exp(-(u^(2))/2)) }
+noyau_rectangulaire = function(u){ return((1/2)*(abs(u)<=1)) }
+noyau_triangulaire = function(u) {return((1-abs(u))*(abs(u)<=1)) }
+noyau_Epanechnikov = function(u) { return((3/4)*(1-u^2)*(abs(u)<=1)) }
+```
+
+On présente alors l'estimateur à noyau, qui depend d'une fenetre $h$ et de l'echantillon $(X_1,...,X_n)$:
+$$\hat{f}_{n,h}(x_0)=\frac{1}{nh}\sum_{i=1}^nK\left(\frac{X_i-x_0}{h}\right)$$
+```{r,echo=TRUE}
+estimateur_noyau_gaussian <- function(x_0,Dn,h) {
+  moy<-0
+  n<-length(Dn)
+  for(i in 1:n) {
+    moy<-moy+noyau_gaussian((Dn[i]-x_0)/h)
+  }
+  mean=moy/n
+  return(mean/h)
+}
+
+estimateur_noyau_rectangulaire <- function(x_0,Dn,h) {
+  moy<-0
+  n<-length(Dn)
+  for(i in 1:n) {
+    moy<-moy+noyau_rectangulaire((Dn[i]-x_0)/h)
+  }
+  mean=moy/n
+  return(mean/h)
+}
+
+estimateur_noyau_triangulaire <- function(x_0,Dn,h) {
+  moy<-0
+  n<-length(Dn)
+  for(i in 1:n) {
+    moy<-moy+noyau_triangulaire((Dn[i]-x_0)/h)
+  }
+  mean=moy/n
+  return(mean/h)
+}
+
+estimateur_noyau_Epanchenikov <- function(x_0,Dn,h) {
+  moy<-0
+  n<-length(Dn)
+  for(i in 1:n) {
+    moy<-moy+noyau_Epanechnikov((Dn[i]-x_0)/h)
+  }
+  mean=moy/n
+  return(mean/h)
+}
+
+
+```
+
+**Remarque:** Nous aimerons avoir une idée sur quelle fenêtre $h$ choisir, on va alors utiliser la fonction *density* avec plusieur valeur de $h$, et regarder quelle est la meilleure, on propose alors le programe suivant:
+
+```{r,echo=TRUE}
+#par exemple pour le modèle 3
+
+couleur=c('green','red','blue','orange','purple','yellow','purple')
+D<-Dn3(800)
+i<-1
+h=seq(0.05,0.5,length.out=7)
+print(h)
+x_=seq(min(D),max(D),length.out=length(D)) 
+
+plot(density(D,bw="ucv"),col='black',ylim=c(0,1),main = 'density avec diffèrentes feunêtres') # en utilisant la validation    
+                                                                                                #croiséé
+lines(x_,f_modele3(x_),col="grey",ylim=c(0,1/2))
+while (i < 7 )  { 
+  lines(density(D,bw=h[i]),col=couleur[i],ylim=c(0,1/2)) 
+  i=i+1
+}
+
+legend('topright',55, 0.035,
+       legend = c("ucv","f modèle 3", "h=0.125", "h=0.05"),
+       fill = c('black','#0000FF','red','green'), lty = 1)
+
+
+#par exemple pour le modèle 1
+
+D1<-Dn1(800)
+j<-1
+h=seq(0.05,0.5,length.out=7)
+x_=seq(min(D1),max(D1),length.out=length(D1))
+plot(density(D1,bw="ucv"),col='black',main = 'density avec diffèrentes feunêtres')
+while (j < 7 )  { 
+  lines(density(D1,bw=h[j]),col=couleur[j]) 
+  j=j+1
+}
+lines(x_,f_modele1(x_),col="#0000FF")
+legend('topright',55, 0.035,
+       legend = c("ucv","f modèle 1", "h=0.125", "h=0.05"),
+       fill = c('black','#0000FF','red','green'), lty = 1)
+
+
+```
+
+**Remarque:** Pour le modèle 3, on trouve que pour $\text{"green"}\leq h \leq \text{"red"}$,$0.05\leq h\leq0.125$ density se rapproche bien de la densité théorique. Et en utilisant la validation croisée pour choisir la feunetre, en prenant *bw="ucv"*(on trouve 0.06 aprés compilation) en parametre *(en noir)*, on se raproche le plus de la densité théorique *(en bleu foncé)*.
+
+
+Nous allons maintenant utiliser la fonction *density* pour comparer la qualité des éstimateur qu'on a construit par rapport a l'utilisation de la fonction *density*, ainsi que la courbe théorique de la densité.
+
+```{r,echo=TRUE}
+
+#modele 1, noyau rectangulaire
+
+
+D<-Dn1(800)
+
+h=seq(0.05,0.5,length.out=7)
+x_=seq(min(D),max(D),length.out=length(D))
+require(graphics)
+plot(density(D,kernel="rectangular",bw="ucv"),col='black',ylim=c(0,0.3),main ='Modèle 1, noyau rectangulaire' )
+lines(x_,f_modele1(x_),col='purple')
+lines(x_,estimateur_noyau_rectangulaire(x_,D,0.25),col='#0000FF')
+lines(x_,estimateur_noyau_rectangulaire(x_,D,1),col="red")
+
+legend('topright',55, 0.035,
+       legend = c("ucv","f modèle 1", "estimRec_cv=0.25", "estimRec=1"),
+       fill = c('black','purple','#0000FF','red'), lty = 1)
+
+
+
+
+#modèle 2, noyau gaussien
+
+D2<-Dn2(1000)
+x_2=seq(min(D2),max(D2)+0.5,length.out=length(D2))
+require(graphics)
+plot(density(D2,kernel='gaussian',bw="ucv"),col='black',main = 'Modèle 2, noyau gaussien')
+lines(x_2,f_modele2(x_2),col='purple')
+lines(x_2,estimateur_noyau_gaussian(x_2,D2,0.05),col='#0000FF')
+lines(x_2,estimateur_noyau_gaussian(x_2,D2,0.9),col="red")
+
+legend('topleft',55, 0.035,
+       legend = c("ucv","f modèle 2", "estimGaus_cv=0.05", "estimGaus=0.9"),
+       fill = c('black','purple','#0000FF','red'), lty = 1)
+
+
+
+
+
+#modèle 3, noyau triangulaire
+
+D3<-Dn3(1000)
+x_3=seq(min(D3),max(D3)+0.5,length.out=length(D3))
+require(graphics)
+plot(density(D3,kernel='triangular',bw="ucv"),col='black',main = 'Modèle 3, noyau triangulaire')
+lines(x_3,f_modele3(x_3),col='purple')
+lines(x_3,estimateur_noyau_triangulaire(x_3,D3,0.05),col='#0000FF')
+lines(x_3,estimateur_noyau_triangulaire(x_3,D3,0.9),col="red")
+
+legend('topright',55, 0.035,
+       legend = c("ucv","f modèle 3", "estimTri_cv=0.25", "estimTri=1"),
+       fill = c('black','purple','#0000FF','red'), lty = 1)
+
+
+
+
+
+```
+
+
+**Remarque:**
+On remarque toujours qu'en prenant *bw="ucv"*, en se raproche le plus de la densité
+
+
+# Partie 2  
+
+Etant donnée un échantillon $D_n=(X_1,....X_n)$, avec $n\in \mathbb{N}$ 
+
+on note $(X_{(1)},....,X_{(n)})$ l'échantillon réordoner.
+
+avec $$\hat{f}_{n,h}(x)=\frac{1}{nh}\sum_{i=0}^nK\left(\frac{X_i-x}{h}\right)$$
+On definit ainsi $I=\left[X_{(1)},X_{(n)}\right]$
+
+## **Objectif:**
+
+Tracer la courbe de la fonction: $h \rightarrow MISE(\hat{f}_{n,h})$, qu'on va comparer avec la courbe de la fonction: $g:h\rightarrow\frac{1}{nh}+h^2$. On va aussi chercher $h^*$ tel que 
+
+$$h^*\in \underset{h\geq0}{argmin} \left( MISE(\hat{f}_{n,h})\right)$$
+
+Ou, pour $h$ fixé, on a:
+$$MISE(\hat{f}_{n,h}) =\mathbb{E} \left[ \int_I(\hat{f}_{n,h}(x_0)-f(x_0))^2\,dx_0\right]$$
+
+ Pour $n'\in\mathbb{N}$, on va éstimer $\mathbb{E} \left[ \int_I(\hat{f}_{n,h}(x_0)-f(x_0))^2\,dx_0\right]$, par la moyenne empirique suivante:
+ $$\frac{1}{n'}\sum_{k=0}^{n'}Z_k$$ 
+ Ou $\text{pour } k\in\{0,..,n'\}\text{, } Z_k=\int_I(\hat{f}_{n,h}(x_0)-f(x_0))^2\,dx_0$.
+ 
+ On va alors simuler $n'$-fois l'échantillon $D_n$ pour construire  chaque $Z_k$.  
+ 
+ 
+```{r,echo=TRUE,message=FALSE}
+
+n=100
+
+
+bw=seq(0.001,5 ,0.005)
+
+integr<-function(f,min,max){
+  mc<-c()
+  u<-runif(80,min=min, max=max)
+  for(k in 1:80){mc[k]<-f(u[k])*(max-min)}
+  return(mean(mc))}
+
+MISEMC=c()
+MISE=c()
+nh<-c()
+for(l in 1:length(bw))
+  {
+  h<-bw[l]
+  Zk<-c()
+  Yk<-c()
+  for (i in 1:100)
+    {
+    D<-Dn1(100)
+    m<-min(D)
+    M<-max(D)
+    dif<-function(x_0){out<-(estimateur_noyau_gaussian(x_0,D,h)-f_modele1(x_0))^2}
+    #Zk[i]<-integrate(dif, lower=min(D), upper = max(D))$value
+    
+    Yk[i]<-integr(dif,m,M)  
+    }                  
+ 
+  nh[l]<-1/(n*h)+h^2# n<-length(D)
+  MISEMC[l]<-mean(Yk)
+}
+
+
+
+
+
+
+plot(x = bw,y=MISEMC,col='#0000FF',type='l',main = "L'erreur en fonction du pas ")
+lines(bw,nh,col='red')
+legend('topright',55, 0.035,
+       legend = c("MISE","g"),
+       fill = c('#0000FF','red'), lty = 1)
+
+
+
+
+argmin_h=bw[which(MISEMC == min(unlist(MISEMC)))]
+argmin_h
+
+
+
+```
+
+
+
+
+
+
+# Partie 3
+
+On va utiliser le jeu de donnée Airquality, et retrouver les densités des variables réels de notre jeu de données en utilisant la fonction *density* ainsi que les éstimateurs qu'on a construit dans la première partie.
+
+
+
+```{r,echo=TRUE}
+data("airquality")
+#help(airquality)
+df<-na.omit(airquality)
+print(head(df))
+```
+
+```{r, echo=TRUE,message=FALSE}
+
+attach(df)
+
+#variable étudiée: Ozone
+
+x1_=seq(min(Ozone),max(Ozone),0.01)
+esto1<-c()
+esto2<-c()
+
+for(i in 1:length(x1_)){
+  esto1[i]<-estimateur_noyau_gaussian(x1_[i],Ozone,6.18)     # on modifie h aprés compilation de                                                                  
+  esto2[i]<-estimateur_noyau_triangulaire(x1_[i],Ozone,6.18) #  density(Ozone,bw="ucv")
+}
+
+
+
+
+require(graphics)
+
+plot(density(Ozone,bw="ucv"),main = 'Densité de la variable: Ozone')
+lines(x1_,esto1, col = 2)
+lines(x1_,esto2, col = 3)
+
+legend('topright',55, 0.035,
+       legend = c("density", "noyau gaussien", "noyau triangulaire"),
+       fill = 1:3, lty = 1)
+ detach(df)
+
+```
+
+
+```{r,echo=TRUE,message=FALSE}
+
+#Variable étudiée: radiations solaire
+
+attach(df)
+
+
+
+x1s_=seq(min(Solar.R),max(Solar.R),0.01)
+ests1<-c()
+ests2<-c()
+for(i in 1:length(x1s_)){
+  ests1[i]<-estimateur_noyau_gaussian(x1s_[i],Solar.R,30)
+  ests2[i]<-estimateur_noyau_Epanchenikov(x1s_[i],Solar.R,30)
+}
+
+
+
+require(graphics)
+
+plot(density(Solar.R,bw="ucv"),main = 'Densité de la variable: Solar.r')
+
+lines(x1s_,ests1, col = 2)
+lines(x1s_,ests2, col = 3)
+
+legend('topleft',55, 0.035,
+       legend = c("density", "noyau gaussien", "noyau Epanchenikov"),
+       fill = 1:3, lty = 1)
+detach(df)
+
+```
+
+```{r,echo=TRUE,message=FALSE}
+attach(df)
+# Variable étudiée: vitesse du vents
+
+x1w_=seq(0,30,0.001)
+estw1<-c()
+estw2<-c()
+for(i in 1:length(x1w_)){
+  estw1[i]<-estimateur_noyau_gaussian(x1w_[i],Wind,0.84)
+  estw2[i]<-estimateur_noyau_rectangulaire(x1w_[i],Wind,0.84)
+}
+
+
+
+
+require(graphics)
+
+plot(density(Wind,bw="ucv"),main = 'Densité de la variable: Wind')
+
+lines(x1w_,estw1, col = 2)
+lines(x1w_,estw2, col = 3)
+
+legend('topright',55, 0.035,
+       legend = c("density", "noyau gaussien", "noyau rectangulaire"),
+       fill = 1:3, lty = 1)
+detach(df)
+
+
+
+```
+```{r,echo=TRUE,message=FALSE,error=FALSE}
+attach(df)
+
+
+x1t_=seq(min(Temp)+0.0001,max(Temp),0.01)
+estt1<-c()
+estt2<-c()
+for(i in 1:length(x1t_)){
+  estt1[i]<-estimateur_noyau_gaussian(x1t_[i],Temp,4.23)
+  estt2[i]<-estimateur_noyau_triangulaire(x1t_[i],Temp,4.23)
+}
+
+
+require(graphics)
+
+
+plot(density(Temp,bw="ucv"),main = 'Densité de la variable: Temp')
+
+lines(x1t_,estt1, col = 2)
+lines(x1t_,estt2, col = 3)
+
+legend('topright',55, 0.035,
+       legend = c("density", "noyau gaussien", "noyau triangulaire"),
+       fill = 1:3, lty = 1)
+detach(df)
+```
+
+
+# Partie 4 choix de fenêtre par validation croisée.
+
+On a
+$$MISE(\hat{f}_{n,h})=\mathbb{E}\left[ \int\hat{f}_{n,h}^2(x)\,dx -2\int \hat{f}_{n,h}(x)f(x)\,dx +\int f^2(x)\,dx\right]$$
+
+On remarque alors que minimiser $ MISE $ en $ h $ revient à minimiser en h:
+$$\mathcal{I}_h=\mathbb{E}\left[ \int\hat{f}_{n,h}^2(x)\,dx\right ] -2\mathbb{E}\left[\int \hat{f}_{n,h}(x)f(x)\,dx\right]$$
+Par ailleur, $\int\hat{f}_{n,h}^2(x)\,dx$ est un éstimateur sans biais de $\mathbb{E}\left[ \int\hat{f}_{n,h}^2(x)\,dx\right ]$.
+
+On va donc chercher un éstimateur sans biais de $\mathbb{E}\left[\int \hat{f}_{n,h}(x)f(x)\,dx\right]$, cela revient a chercher un éstimateur de $\mathbb{E}\left[ \hat{f}_{n,h}(X)\right ]$, ou $X$ est indépendant de $(X_1,...,X_n)$.
+
+En effet,
+
+$$\mathbb{E}_{_{(X_1,...,X_n)}}\left[\hat{f}_{n,h}(X)\right]=\mathbb{E}_{_{(X_1,...,X_n)}}\left[\mathbb{E}_{_{X}}[\hat{f}_{n,h}(X)\mid X_1,..,X_n]\right]=\mathbb{E}_{_{(X_1,...,X_n)}}\left[\int \hat{f}_{n,h}(x)f(x)\,dx\right]$$
+Vu que $\left(\hat{f}_{n,h}(X_i)\right)_{i\leq n}$ ne sont pas i.i.d, on ne pourrais pas utiliser $\frac{1}{n}\sum_{i=1}^n\hat{f}_{n,h}(X_i)$ comme éstimateur.
+
+On va s'appuier sur le *leave-one-out* pour pallier à ce problème, on definit alors pour $i\in\{1,...,n\}$
+$$\hat{f}_{n,h}^{(-i)}(x_0)=\frac{1}{(n-1)h}\sum_{j=1,j\neq i}^nK\left(\frac{X_j-x_0}{h}\right)$$
+
+
+
+On alors,
+$$\mathbb{E}\left[\int \hat{f}_{n,h}(x)f(x)\,dx\right]=\mathbb{E}\left[\frac{1}{n}\sum_{i=1}^n\hat{f}_{n,h}^{(-i)}(X_i)\right]$$
+En effect $\left(\hat{f}_{n,h}^{(-i)}(X_i)\right)_{i\leq n}$ sont i.i.d, donc $\mathbb{E}\left[\frac{1}{n}\sum_{i=1}^n\hat{f}_{n,h}^{(-i)}(X_i)\right]=\mathbb{E}\left[\hat{f}_{n,h}^{(-1)}(X_1)\right]$. 
+D'une parts on a :
+
+$$\mathbb{E}\left[\hat{f}_{n,h}^{(-1)}(X_1)\right]=\mathbb{E}\left[\frac{1}{(n-1)h}\sum_{j=2}^nK\left(\frac{X_j-X_1}{h}\right)\right]=\frac{1}{h}\mathbb{E}\left[K\left(\frac{X_2-X_1}{h}\right)\right]$$
+
+D'autre part,
+$$\mathbb{E}\left[ \hat{f}_{n,h}(X)\right ]=\mathbb{E}\left[\frac{1}{nh}\sum_{i=1}^nK\left(\frac{X_i-X}{h}\right)\right]=\frac{1}{h}\mathbb{E}\left[K\left(\frac{X_1-X}{h}\right)\right]$$
+Donc,
+
+$$\mathbb{E}\left[ \hat{f}_{n,h}(X)\right ]=\mathbb{E}\left[\int \hat{f}_{n,h}(x)f(x)\,dx\right]=\mathbb{E}\left[\frac{1}{n}\sum_{i=1}^n\hat{f}_{n,h}^{(-i)}(X_i)\right]$$
+On abouti alors au critère pratique suivant:
+$$\hat{h}\in \underset{h\geq0}{argmin}\left(\int\hat{f}_{n,h}^2(x)\,dx-\frac{2}{n}\sum_{i=1}^n\hat{f}_{n,h}^{(-i)}(X_i)(+\int f^2(x)\,dx)\right)$$
+**Remarque:** Dans un jeu de donnéé réel on ne connais pas $\int f^2(x)\,dx$, mais on peut toujours éstimer le minimiseur du risque quadratique intégré en utilisant que les données.
+Dans le programme, on rajoute $\int f^2(x)\,dx$ pour comparer avec $h\rightarrow\frac{1}{nh}+h^2$
+
+On propose alors le programe suivant:
+
+```{r,echo=TRUE}
+
+estimateur_noyau_leave_one_out <-function (Dn,h,u)
+{
+  n<-length(Dn)
+  X <- 0
+  
+  
+  for (i in 1:n) 
+  {
+     moyenne <- 0
+   
+     for (j in 1:n)
+        { if ( j != i) {moyenne <-moyenne+noyau_gaussian((Dn[j]-u[i])/h)} }
+    
+  
+  X<-X+moyenne/((n-1)*h)
+  
+  }
+return(X/n)
+}
+caree<-function(x){out<-f_modele1(x)^2}
+integr<-function(f,min,max){
+  mc<-c()
+  u<-runif(250,min=min, max=max)
+  for(k in 1:250){mc[k]<-f(u[k])*(max-min)}
+  return(mean(mc))}
+
+
+
+#Creation d'une sequence h 
+bw=seq(0.0005,3,length.out = 350)
+#h=c(0.1,1,2)
+MISEcv=c()
+nhcv=c()
+D<-Dn1(350)
+n<-length(D)
+i<-1
+while(i<length(D)+1)
+ 
+  {
+  h_i<-bw[i]
+      
+  f_chapeau <- function(u){ out<-estimateur_noyau_gaussian(u,D,h_i)**2 }
+  MISEcv[i]<-integr(f_chapeau,min(D),max(D))- 2* estimateur_noyau_leave_one_out(D,h_i,D)+integr(caree,min(D),max(D))
+  nhcv[i]<-1/(n*h_i)+h_i^2
+  i<-i+1
+}
+
+
+require(graphics)
+plot(x=bw,y=MISEcv,col='#0000FF',type = 'l')
+lines(x=bw,y=nhcv,col='red')
+
+
+legend('topright',55, 0.035,
+       legend = c("MISEcv","g"),
+       fill = c('#0000FF','red'), lty = 1)
+
+
+
+
+h_oracle=bw[which(MISEcv == min(unlist(MISEcv)))]
+h_oracle
+
+
+```
+**Remarque:** On retrouve un $h$ proche de celui qu'on trouve dans la deuxième partie.
+
+
